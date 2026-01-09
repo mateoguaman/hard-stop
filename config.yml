@@ -1,0 +1,10 @@
+# Hardstop config (YAML, flat keys)
+start_time: "22:00"
+end_time: "09:00"
+prewarn_minutes: 5
+prewarn_title: ""
+prewarn_message: "Wrap up now and write your log-off ritual for tomorrow."
+wallpaper_path: "$HOME/hardstop.png"
+hardstop_action: "lock"
+lock_interval_seconds: 10
+show_idle: true

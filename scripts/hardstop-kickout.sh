@@ -24,16 +24,105 @@ TEST_FAST_INTERVAL_SECONDS=10
 TEST_FAST_DURATION_SECONDS=40
 TEST_FAST_PREWARN_SECONDS=10
 
-STATE_DIR="$HOME/Library/Application Support/hardstop"
+STATE_DIR="${HARDSTOP_STATE_DIR:-$HOME/Library/Application Support/hardstop}"
+REPO_FILE="$HOME/.local/share/hardstop/repo_path"
+CONFIG_FILE=""
+DRY_RUN="${HARDSTOP_DRY_RUN:-0}"
 WALLPAPER_STATE_FILE="$STATE_DIR/wallpaper_before.txt"
 WALLPAPER_STORE="$HOME/Library/Application Support/com.apple.wallpaper/Store/Index.plist"
 WALLPAPER_STORE_BACKUP="$STATE_DIR/Index.plist.backup"
 WALLPAPER_PREFS="$HOME/Library/Preferences/com.apple.wallpaper.plist"
 WALLPAPER_PREFS_BACKUP="$STATE_DIR/com.apple.wallpaper.plist.backup"
+LAST_LOCK_FILE="$STATE_DIR/last_lock_epoch.txt"
 ACTIVE_FILE="$STATE_DIR/active"
 WARN_FILE_PREFIX="$STATE_DIR/warned_"
 
 # --- Helpers ---
+
+# Resolve config location (env > repo > state dir).
+if [ -n "${HARDSTOP_CONFIG:-}" ]; then
+  CONFIG_FILE="$HARDSTOP_CONFIG"
+elif [ -f "$REPO_FILE" ]; then
+  repo_root="$(/bin/cat "$REPO_FILE" 2>/dev/null || echo "")"
+  if [ -n "$repo_root" ] && [ -f "$repo_root/config.yml" ]; then
+    CONFIG_FILE="$repo_root/config.yml"
+  fi
+fi
+
+if [ -z "$CONFIG_FILE" ]; then
+  CONFIG_FILE="$STATE_DIR/config.yml"
+fi
+
+# Allow optional per-user overrides without editing this script.
+yaml_get() {
+  local key="$1"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    return 0
+  fi
+  /usr/bin/awk -F: -v k="$key" '
+    $0 ~ /^[[:space:]]*#/ {next}
+    NF >= 2 {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1);
+      if ($1 == k) {
+        $1 = "";
+        sub(/^:[[:space:]]*/, "", $0);
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0);
+        gsub(/^"/, "", $0); gsub(/"$/, "", $0);
+        gsub(/^'\''/, "", $0); gsub(/'\''$/, "", $0);
+        print $0; exit;
+      }
+    }
+  ' "$CONFIG_FILE"
+}
+
+expand_path() {
+  local p="$1"
+  p="${p/#\~/$HOME}"
+  p="${p//\$\{HOME\}/$HOME}"
+  p="${p//\$HOME/$HOME}"
+  echo "$p"
+}
+
+apply_yaml_overrides() {
+  local val
+
+  val="$(yaml_get start_time)"
+  if [ -n "$val" ]; then
+    START_TIME="$val"
+  fi
+
+  val="$(yaml_get end_time)"
+  if [ -n "$val" ]; then
+    END_TIME="$val"
+  fi
+
+  val="$(yaml_get prewarn_minutes)"
+  if /usr/bin/printf "%s" "$val" | /usr/bin/grep -Eq '^[0-9]+$'; then
+    PREWARN_MINUTES="$val"
+  fi
+
+  val="$(yaml_get prewarn_title)"
+  if [ -n "$val" ]; then
+    PREWARN_TITLE="$val"
+  fi
+
+  val="$(yaml_get prewarn_message)"
+  if [ -n "$val" ]; then
+    PREWARN_MESSAGE="$val"
+  fi
+
+  val="$(yaml_get wallpaper_path)"
+  if [ -n "$val" ]; then
+    WALLPAPER_PATH="$(expand_path "$val")"
+  fi
+
+  val="$(yaml_get hardstop_action)"
+  if [ "$val" = "lock" ] || [ "$val" = "logout" ]; then
+    HARDSTOP_ACTION="$val"
+  fi
+}
+
+apply_yaml_overrides
 
 to_minutes() {
   local t="$1"
@@ -85,6 +174,9 @@ in_quiet_hours() {
 
 send_prewarn() {
   local mode until stamp warn_file title message
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   mode="${1:-}"
   if [ "$PREWARN_MINUTES" -le 0 ]; then
     return 0
@@ -124,6 +216,9 @@ APPLESCRIPT
 }
 
 save_wallpaper_state() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   if [ -f "$WALLPAPER_STATE_FILE" ]; then
     return 0
   fi
@@ -152,12 +247,15 @@ APPLESCRIPT
 }
 
 set_wallpaper() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   if [ ! -f "$WALLPAPER_PATH" ]; then
     return 0
   fi
 
-  save_wallpaper_state
-  /usr/bin/osascript <<APPLESCRIPT
+  save_wallpaper_state || true
+  /usr/bin/osascript <<APPLESCRIPT || true
 set picturePath to POSIX file "${WALLPAPER_PATH}"
 tell application "System Events"
   repeat with d in desktops
@@ -166,10 +264,13 @@ tell application "System Events"
 end tell
 APPLESCRIPT
 
-  /usr/bin/touch "$ACTIVE_FILE"
+  /usr/bin/touch "$ACTIVE_FILE" || true
 }
 
 restore_wallpaper_store() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   if [ -f "$WALLPAPER_PREFS_BACKUP" ]; then
     /bin/cp "$WALLPAPER_PREFS_BACKUP" "$WALLPAPER_PREFS"
   fi
@@ -235,13 +336,16 @@ print_system_wallpaper_url() {
 }
 
 restore_wallpaper() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   if [ ! -f "$ACTIVE_FILE" ]; then
     return 0
   fi
 
   if [ -s "$WALLPAPER_STATE_FILE" ]; then
     if /usr/bin/grep -qv -e '^$' -e '^<missing>$' "$WALLPAPER_STATE_FILE"; then
-      /usr/bin/osascript <<APPLESCRIPT
+      /usr/bin/osascript <<APPLESCRIPT || true
 set stateFile to POSIX file "${WALLPAPER_STATE_FILE}"
 set picList to paragraphs of (read stateFile)
 tell application "System Events"
@@ -259,20 +363,26 @@ tell application "System Events"
 end tell
 APPLESCRIPT
     else
-      restore_wallpaper_store
+      restore_wallpaper_store || true
     fi
   else
-    restore_wallpaper_store
+    restore_wallpaper_store || true
   fi
 
-  /bin/rm -f "$ACTIVE_FILE" "$WALLPAPER_STATE_FILE" "$WALLPAPER_STORE_BACKUP" "$WALLPAPER_PREFS_BACKUP"
+  /bin/rm -f "$ACTIVE_FILE" "$WALLPAPER_STATE_FILE" "$WALLPAPER_STORE_BACKUP" "$WALLPAPER_PREFS_BACKUP" || true
 }
 
 logout_user() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   /usr/bin/osascript -e 'tell application "System Events" to log out'
 }
 
 lock_screen() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   local cgsession
   cgsession="/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
 
@@ -287,6 +397,7 @@ lock_screen() {
 }
 
 apply_action() {
+  /bin/date +%s > "$LAST_LOCK_FILE"
   if [ "$HARDSTOP_ACTION" = "logout" ]; then
     logout_user
   else
@@ -316,6 +427,7 @@ APPLESCRIPT
   done
 
   restore_wallpaper
+  /bin/rm -f "$LAST_LOCK_FILE"
   /usr/bin/osascript -e 'display notification "Test complete. Restored wallpaper." with title "Hard stop test"'
 }
 
@@ -373,6 +485,7 @@ main() {
   if ! in_quiet_hours; then
     restore_wallpaper
     send_prewarn
+    /bin/rm -f "$LAST_LOCK_FILE"
     exit 0
   fi
 

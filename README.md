@@ -6,20 +6,35 @@ logout via `HARDSTOP_ACTION`.)
 
 ## Files
 - `scripts/hardstop-kickout.sh` — the enforcement script
+- `scripts/hardstop` — CLI wrapper (enable/disable/test/config)
+- `scripts/install.sh` — installer
+- `scripts/test.sh` — dry-run test suite
 - `launchd/com.hardstop.kickout.plist` — LaunchAgent, runs every 60 seconds
+- `swiftbar/hardstop.1s.sh` — SwiftBar menu bar plugin
+- `config.yml` — editable config (preferred)
 - `FUTURE_PLAN.md` — a harder combined plan for later
 
 ## Setup
 1) Pick or create a reminder image and save it somewhere stable, for example:
    `~/hardstop.png`
 
-2) Edit the config at the top of `scripts/hardstop-kickout.sh`:
-   - `START_TIME` (default `22:00`)
-   - `END_TIME` (default `09:00`)
-   - `WALLPAPER_PATH` (path to your reminder image, default `~/hardstop.png`)
-   - `PREWARN_MINUTES` (default `5`)
-   - `PREWARN_TITLE` / `PREWARN_MESSAGE` (title auto-fills if empty)
-   - `HARDSTOP_ACTION` (`lock` for lock screen, `logout` to fully log out)
+2) Edit the YAML config (recommended, stored in the repo):
+```bash
+hardstop config
+```
+
+Config file location (preferred): `config.yml` at the repo root.
+Fallback location: `~/Library/Application Support/hardstop/config.yml`
+Editor: uses `vim` by default; override with `HARDSTOP_EDITOR` or `$EDITOR`.
+
+Key settings:
+- `start_time` / `end_time` (e.g., `"22:00"` / `"09:00"`)
+- `prewarn_minutes`
+- `prewarn_title` / `prewarn_message`
+- `wallpaper_path`
+- `hardstop_action` (`lock` or `logout`)
+- `lock_interval_seconds`
+- `show_idle` (SwiftBar: show or hide during open hours)
 
 3) Install the script and LaunchAgent:
 ```bash
@@ -44,6 +59,9 @@ bash scripts/install.sh
 After install, use the `hardstop` command:
 ```bash
 hardstop install
+hardstop install-swiftbar
+hardstop config
+hardstop interval 60
 hardstop enable
 hardstop disable
 hardstop reload
@@ -72,11 +90,13 @@ If `hardstop` is not found, add `~/.local/bin` to your PATH or use:
 - If you use dynamic wallpapers (Aerials, etc.), the script also snapshots
   `~/Library/Application Support/com.apple.wallpaper/Store/Index.plist` and
   restores it after quiet hours, along with `~/Library/Preferences/com.apple.wallpaper.plist`.
-- Future idea: add a SwiftBar menu bar countdown for the last 5 minutes before
-  hard stop.
 - Locking uses `CGSession` if available; otherwise it sends the
   Control+Command+Q keystroke and may require Accessibility permission for
   Terminal or `osascript`.
+- SwiftBar plugin lives at `swiftbar/hardstop.1s.sh`. It refreshes every 1
+  second and only shows during prewarn/quiet hours by default.
+- If you change `lock_interval_seconds` manually, run `hardstop reload` (or
+  `hardstop interval <seconds>`) to apply it to launchd.
 
 ## Test mode
 Run these by hand to verify behavior without waiting until 10 pm (prewarn is forced):
@@ -88,6 +108,20 @@ Run these by hand to verify behavior without waiting until 10 pm (prewarn is for
 ~/.local/bin/hardstop-kickout.sh --restore
 ~/.local/bin/hardstop-kickout.sh --print-wallpaper
 ```
+
+## Test suite
+Run a safe, dry-run test suite (no locks, no wallpaper changes):
+```bash
+hardstop-test.sh
+```
+
+## SwiftBar menu bar plugin
+1) Install SwiftBar from https://swiftbar.app if you do not have it.
+2) Run (also happens automatically during `hardstop install`):
+```bash
+hardstop install-swiftbar
+```
+3) In SwiftBar, make sure plugins are enabled and refresh if needed.
 
 ## Disable
 ```bash
@@ -105,6 +139,9 @@ launchctl unload -w ~/Library/LaunchAgents/com.hardstop.kickout.plist
   `osascript` or Terminal in System Settings > Privacy & Security > Automation.
 - If lock does not happen, grant Accessibility permission to Terminal (or
   `osascript`) so it can send Control+Command+Q.
+- If it still does not lock, the wallpaper change can fail and exit early in
+  some environments. The script now treats wallpaper changes as best-effort,
+  so reinstall to pick up the fix.
 - Dynamic wallpapers show `<missing>` in System Events; use `hardstop wallpaper`
   to confirm the provider and `SystemWallpaperURL`.
 - If `launchctl load` fails with `Load failed: 5`, prefer `hardstop enable`

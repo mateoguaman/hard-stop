@@ -6,6 +6,13 @@ PLIST="$HOME/Library/LaunchAgents/com.hardstop.kickout.plist"
 STATE_DIR="$HOME/.local/share/hardstop"
 REPO_FILE="$STATE_DIR/repo_path"
 GUI_DOMAIN="gui/$(/usr/bin/id -u)"
+PLUGIN_DIR="$HOME/Library/Application Support/SwiftBar/Plugins"
+PLUGIN_NAME="hardstop.1s.sh"
+PLUGIN_PATH="$PLUGIN_DIR/$PLUGIN_NAME"
+PLUGIN_OLD="$PLUGIN_DIR/hardstop.10s.sh"
+CONFIG_FILE="$HOME/Library/Application Support/hardstop/config.yml"
+REPO_FILE="$HOME/.local/share/hardstop/repo_path"
+REPO_CONFIG=""
 
 usage() {
   cat <<'USAGE'
@@ -13,6 +20,10 @@ Usage: hardstop <command>
 
 Commands:
   install       Re-install from the recorded repo path
+  install-swiftbar  Install the SwiftBar plugin
+  uninstall-swiftbar Remove the SwiftBar plugin
+  config        Edit config (YAML)
+  interval      Set lock interval seconds
   enable        Load and enable the LaunchAgent
   disable       Unload and disable the LaunchAgent
   reload        Reload the LaunchAgent
@@ -51,6 +62,134 @@ install_from_repo() {
   /bin/bash "$repo_root/scripts/install.sh"
 }
 
+install_swiftbar() {
+  local repo_root plugin_src
+  repo_root="${HARDSTOP_REPO:-}"
+
+  if [ -z "$repo_root" ] && [ -f "$REPO_FILE" ]; then
+    repo_root="$(/bin/cat "$REPO_FILE")"
+  fi
+
+  if [ -z "$repo_root" ]; then
+    echo "Repo not found. Run: hardstop install (from repo) first." >&2
+    exit 1
+  fi
+
+  plugin_src="$repo_root/swiftbar/$PLUGIN_NAME"
+  if [ ! -f "$plugin_src" ]; then
+    echo "Missing plugin at $plugin_src" >&2
+    exit 1
+  fi
+
+  /bin/mkdir -p "$PLUGIN_DIR"
+  /bin/rm -f "$PLUGIN_OLD"
+  /bin/cp "$plugin_src" "$PLUGIN_PATH"
+  /bin/chmod +x "$PLUGIN_PATH"
+  echo "Installed SwiftBar plugin: $PLUGIN_PATH"
+}
+
+uninstall_swiftbar() {
+  local removed=0
+  if [ -f "$PLUGIN_PATH" ]; then
+    /bin/rm -f "$PLUGIN_PATH"
+    removed=1
+  fi
+  if [ -f "$PLUGIN_OLD" ]; then
+    /bin/rm -f "$PLUGIN_OLD"
+    removed=1
+  fi
+  if [ "$removed" -eq 1 ]; then
+    echo "Removed SwiftBar plugin(s)."
+  else
+    echo "SwiftBar plugin not found."
+  fi
+}
+
+ensure_config() {
+  local dir
+  if [ -f "$REPO_FILE" ]; then
+    repo_root="$(/bin/cat "$REPO_FILE" 2>/dev/null || echo "")"
+    if [ -n "$repo_root" ]; then
+      REPO_CONFIG="$repo_root/config.yml"
+    fi
+  fi
+
+  if [ -n "$REPO_CONFIG" ]; then
+    CONFIG_FILE="$REPO_CONFIG"
+  fi
+
+  dir="$(/usr/bin/dirname "$CONFIG_FILE")"
+  /bin/mkdir -p "$dir"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    cat <<'EOF' > "$CONFIG_FILE"
+# Hardstop config (YAML, flat keys)
+start_time: "22:00"
+end_time: "09:00"
+prewarn_minutes: 5
+prewarn_title: ""
+prewarn_message: "Wrap up now and write your log-off ritual for tomorrow."
+wallpaper_path: "$HOME/hardstop.png"
+hardstop_action: "lock"
+lock_interval_seconds: 60
+show_idle: false
+EOF
+  fi
+}
+
+yaml_quote() {
+  local val="$1"
+  if /usr/bin/printf "%s" "$val" | /usr/bin/grep -Eq '^(true|false|[0-9]+)$'; then
+    echo "$val"
+  else
+    val="${val//\\/\\\\}"
+    val="${val//\"/\\\"}"
+    echo "\"$val\""
+  fi
+}
+
+yaml_set() {
+  local key="$1"
+  local value="$2"
+  local tmp
+  ensure_config
+  tmp="$(/usr/bin/mktemp "${CONFIG_FILE}.tmp.XXXXXX")"
+  /usr/bin/awk -v k="$key" -v v="$value" '
+    BEGIN {found = 0}
+    $0 ~ /^[[:space:]]*#/ {print; next}
+    match($0, /^[[:space:]]*([^:#]+)[[:space:]]*:/, m) {
+      name = m[1];
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", name);
+      if (name == k) {
+        print k ": " v;
+        found = 1;
+        next;
+      }
+    }
+    {print}
+    END {if (found == 0) print k ": " v}
+  ' "$CONFIG_FILE" > "$tmp"
+  /bin/mv "$tmp" "$CONFIG_FILE"
+}
+
+set_interval() {
+  local seconds="$1"
+  if ! /usr/bin/printf "%s" "$seconds" | /usr/bin/grep -Eq '^[0-9]+$'; then
+    echo "Interval must be a positive integer (seconds)." >&2
+    exit 1
+  fi
+  if [ "$seconds" -lt 5 ]; then
+    echo "Interval too small; use 5 seconds or more." >&2
+    exit 1
+  fi
+  require_plist
+  yaml_set "lock_interval_seconds" "$(yaml_quote "$seconds")"
+  /usr/bin/plutil -replace StartInterval -integer "$seconds" "$PLIST"
+  /bin/launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
+  /bin/launchctl enable "$GUI_DOMAIN/com.hardstop.kickout" >/dev/null 2>&1 || true
+  /bin/launchctl bootstrap "$GUI_DOMAIN" "$PLIST"
+  echo "Set interval to ${seconds}s."
+}
+
 require_script() {
   if [ ! -f "$SCRIPT" ]; then
     echo "Missing $SCRIPT. Run ./scripts/install.sh first." >&2
@@ -74,6 +213,27 @@ cmd="${1:-help}"
 case "$cmd" in
   install)
     install_from_repo
+    ;;
+  install-swiftbar)
+    install_swiftbar
+    ;;
+  uninstall-swiftbar)
+    uninstall_swiftbar
+    ;;
+  config)
+    ensure_config
+    if [ -n "${HARDSTOP_EDITOR:-}" ]; then
+      "${HARDSTOP_EDITOR}" "$CONFIG_FILE"
+    elif /usr/bin/command -v vim >/dev/null 2>&1; then
+      /usr/bin/vim "$CONFIG_FILE"
+    elif [ -n "${EDITOR:-}" ]; then
+      "${EDITOR}" "$CONFIG_FILE"
+    else
+      /usr/bin/nano "$CONFIG_FILE"
+    fi
+    ;;
+  interval)
+    set_interval "${2:-}"
     ;;
   enable)
     require_plist

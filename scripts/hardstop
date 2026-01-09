@@ -1,0 +1,162 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT="$HOME/.local/bin/hardstop-kickout.sh"
+PLIST="$HOME/Library/LaunchAgents/com.hardstop.kickout.plist"
+STATE_DIR="$HOME/.local/share/hardstop"
+REPO_FILE="$STATE_DIR/repo_path"
+GUI_DOMAIN="gui/$(/usr/bin/id -u)"
+
+usage() {
+  cat <<'USAGE'
+Usage: hardstop <command>
+
+Commands:
+  install       Re-install from the recorded repo path
+  enable        Load and enable the LaunchAgent
+  disable       Unload and disable the LaunchAgent
+  reload        Reload the LaunchAgent
+  status        Show whether the LaunchAgent is loaded
+  test          Show prewarn dialog + set reminder wallpaper
+  test-fast     Lock every 10s for ~40s, then restore wallpaper
+  test-lock     Show prewarn dialog + set wallpaper + lock screen
+  test-logout   Show prewarn dialog + set wallpaper + log out
+  restore       Restore previous wallpaper now
+  wallpaper     Print current wallpaper paths
+  help          Show this help
+USAGE
+}
+
+install_from_repo() {
+  local repo_root script_dir
+  repo_root="${HARDSTOP_REPO:-}"
+
+  if [ -z "$repo_root" ] && [ -f "$REPO_FILE" ]; then
+    repo_root="$(/bin/cat "$REPO_FILE")"
+  fi
+
+  if [ -z "$repo_root" ]; then
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    if [ -f "$script_dir/install.sh" ]; then
+      repo_root="$(cd "$script_dir/.." && pwd)"
+    fi
+  fi
+
+  if [ -z "$repo_root" ] || [ ! -f "$repo_root/scripts/install.sh" ]; then
+    echo "Repo not found. Run: (cd <repo> && bash scripts/install.sh)" >&2
+    echo "Or set HARDSTOP_REPO=/path/to/repo and run: hardstop install" >&2
+    exit 1
+  fi
+
+  /bin/bash "$repo_root/scripts/install.sh"
+}
+
+require_script() {
+  if [ ! -f "$SCRIPT" ]; then
+    echo "Missing $SCRIPT. Run ./scripts/install.sh first." >&2
+    exit 1
+  fi
+}
+
+require_plist() {
+  if [ ! -f "$PLIST" ]; then
+    echo "Missing $PLIST. Run ./scripts/install.sh first." >&2
+    exit 1
+  fi
+}
+
+is_loaded() {
+  /bin/launchctl list | /usr/bin/grep -q "com.hardstop.kickout"
+}
+
+cmd="${1:-help}"
+
+case "$cmd" in
+  install)
+    install_from_repo
+    ;;
+  enable)
+    require_plist
+    /bin/launchctl enable "$GUI_DOMAIN/com.hardstop.kickout" >/dev/null 2>&1 || true
+    if is_loaded; then
+      echo "loaded"
+    else
+      /bin/launchctl bootstrap "$GUI_DOMAIN" "$PLIST"
+    fi
+    ;;
+  disable)
+    require_plist
+    /bin/launchctl disable "$GUI_DOMAIN/com.hardstop.kickout" >/dev/null 2>&1 || true
+    /bin/launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
+    ;;
+  reload)
+    require_plist
+    /bin/launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
+    /bin/launchctl enable "$GUI_DOMAIN/com.hardstop.kickout" >/dev/null 2>&1 || true
+    /bin/launchctl bootstrap "$GUI_DOMAIN" "$PLIST"
+    ;;
+  status)
+    if is_loaded; then
+      echo "loaded"
+    else
+      echo "not loaded"
+    fi
+    ;;
+  test)
+    require_script
+    "$SCRIPT" --test
+    ;;
+  test-fast)
+    require_script
+    "$SCRIPT" --test-fast
+    ;;
+  test-lock)
+    require_script
+    "$SCRIPT" --test-lock
+    ;;
+  test-logout)
+    require_script
+    "$SCRIPT" --test-logout
+    ;;
+  restore)
+    require_script
+    "$SCRIPT" --restore
+    ;;
+  wallpaper)
+    require_script
+    output="$($SCRIPT --print-wallpaper)"
+    if [ -n "$output" ]; then
+      echo "$output"
+    else
+      echo "<unknown>"
+    fi
+    if echo "$output" | /usr/bin/grep -q "<missing>"; then
+      provider="$($SCRIPT --print-wallpaper-provider)"
+      if [ -n "$provider" ]; then
+        case "$provider" in
+          com.apple.wallpaper.choice.aerials)
+            echo "Provider: $provider (Aerials dynamic)"
+            ;;
+          com.apple.wallpaper.choice.image)
+            echo "Provider: $provider (image)"
+            ;;
+          *)
+            echo "Provider: $provider"
+            ;;
+        esac
+      fi
+    fi
+    url="$($SCRIPT --print-system-wallpaper-url)"
+    if [ -n "$url" ]; then
+      echo "SystemWallpaperURL: $url"
+    fi
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    usage
+    exit 1
+    ;;
+esac

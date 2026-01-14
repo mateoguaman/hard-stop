@@ -32,17 +32,31 @@ yaml_get() {
   if [ ! -f "$CONFIG_FILE" ]; then
     return 0
   fi
-  /usr/bin/awk -F: -v k="$key" '
+  /usr/bin/awk -v k="$key" '
     $0 ~ /^[[:space:]]*#/ {next}
-    NF >= 2 {
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1);
-      if ($1 == k) {
-        $1 = "";
-        sub(/^:[[:space:]]*/, "", $0);
-        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0);
-        gsub(/^"/, "", $0); gsub(/"$/, "", $0);
-        gsub(/^'\''/, "", $0); gsub(/'\''$/, "", $0);
-        print $0; exit;
+    {
+      # Match key at start of line followed by colon
+      if (match($0, "^[[:space:]]*" k "[[:space:]]*:")) {
+        val = substr($0, RLENGTH + 1)
+        # Strip leading whitespace
+        gsub(/^[[:space:]]+/, "", val)
+        # Handle double-quoted strings
+        if (match(val, /^"[^"]*"/)) {
+          val = substr(val, 2, RLENGTH - 2)
+          print val
+          exit
+        }
+        # Handle single-quoted strings
+        if (match(val, /^'\''[^'\'']*'\''/)) {
+          val = substr(val, 2, RLENGTH - 2)
+          print val
+          exit
+        }
+        # Unquoted value: take until comment or end of line
+        gsub(/[[:space:]]*#.*$/, "", val)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+        print val
+        exit
       }
     }
   ' "$CONFIG_FILE"

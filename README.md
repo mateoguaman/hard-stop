@@ -6,10 +6,19 @@ No warnings. No dialogs. Just shutdown.
 
 ## How It Works
 
-1. A LaunchAgent runs every 5 minutes (configurable)
+1. A **macOS LaunchAgent** runs the script every 5 minutes (configurable)
 2. If the current time is within quiet hours, it runs `sudo shutdown -h now`
 3. If you turn your computer back on during quiet hours, it will shut down again
 4. This continues until 8 AM when quiet hours end
+
+**Note on timing**: The first shutdown happens at the first 5-minute interval check after 9 PM (not exactly at 9:00 PM). Worst case is ~5 minutes after 9 PM.
+
+### Why LaunchAgent (not cron)?
+
+This uses macOS's native `launchd` system instead of cron:
+- LaunchAgents are user-session aware (only run when logged in)
+- Managed via `launchctl` commands
+- The plist file defines the schedule (`StartInterval: 300` = every 300 seconds)
 
 ## Files
 

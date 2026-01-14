@@ -24,7 +24,6 @@ Commands:
   install       Re-install from the recorded repo path
   config        Edit config (YAML)
   enable        Load and enable the LaunchAgent
-  disable       Unload and disable the LaunchAgent
   reload        Reload the LaunchAgent
   status        Show current status (in quiet hours or not)
   check         Check if would shutdown (doesn't actually shutdown)
@@ -219,12 +218,6 @@ case "$cmd" in
       /bin/launchctl bootstrap "$GUI_DOMAIN" "$PLIST"
       echo "Enabled - shutdown will be enforced during quiet hours"
     fi
-    ;;
-  disable)
-    require_plist
-    /bin/launchctl disable "$GUI_DOMAIN/com.hardstop.kickout" >/dev/null 2>&1 || true
-    /bin/launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
-    echo "Disabled - shutdown enforcement paused"
     ;;
   reload)
     require_plist

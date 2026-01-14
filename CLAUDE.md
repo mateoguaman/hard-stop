@@ -10,7 +10,7 @@ Hard Stop is a macOS tool that enforces computer shutdown during "quiet hours" (
 
 - **LaunchAgent** (`launchd/com.hardstop.kickout.plist`): macOS service that runs the script every 5 minutes
 - **Main script** (`scripts/hardstop-kickout.sh`): Checks if current time is in quiet hours, runs shutdown if so
-- **CLI wrapper** (`scripts/hardstop`): User-facing commands (enable, disable, status, etc.)
+- **CLI wrapper** (`scripts/hardstop`): User-facing commands (status, config, check, etc.)
 - **Sudoers rule** (`sudoers/hardstop-shutdown`): Allows `shutdown` to run without password prompt
 - **Config** (`config.yml`): User-editable settings (times, interval)
 
@@ -46,8 +46,6 @@ After install:
 ## Common Tasks
 
 **Change quiet hours**: Edit `config.yml`, run `hardstop reload`
-
-**Temporarily disable**: `hardstop disable`
 
 **Dry-run check**: `hardstop check` (shows quiet hours status, grace period)
 

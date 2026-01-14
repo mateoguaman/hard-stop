@@ -62,8 +62,6 @@ hardstop reload
 hardstop status    # Check if in quiet hours, grace period, and service status
 hardstop check     # Dry-run: show what would happen (no actual shutdown)
 hardstop test      # Run the test suite (no actual shutdowns)
-hardstop disable   # Temporarily disable enforcement
-hardstop enable    # Re-enable enforcement
 hardstop reload    # Reload after config changes
 hardstop config    # Edit configuration file
 hardstop install   # Re-install from repo
@@ -85,16 +83,11 @@ sudo chmod 440 /etc/sudoers.d/hardstop-shutdown
 sudo chown root:wheel /etc/sudoers.d/hardstop-shutdown
 ```
 
-## Disable
+## Uninstall
 
-Temporarily:
+To completely remove Hard Stop:
 ```bash
-hardstop disable
-```
-
-Permanently (remove everything):
-```bash
-hardstop disable
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.hardstop.kickout.plist
 rm ~/.local/bin/hardstop*
 rm ~/Library/LaunchAgents/com.hardstop.kickout.plist
 sudo rm /etc/sudoers.d/hardstop-shutdown
@@ -145,9 +138,7 @@ All 38 tests are safe - no actual shutdowns will occur.
 
 ## Grace Period
 
-When you reboot during quiet hours, you get a **grace period** before the next shutdown. This allows you to:
-- Quickly do something urgent on your computer
-- Run `hardstop disable` if you need to work late
+When you reboot during quiet hours, you get a **grace period** before the next shutdown. This allows you to quickly do something urgent on your computer.
 
 The grace period equals `lock_interval_seconds` from config (default 5 minutes). During `test-live` mode, the grace period equals the test interval instead.
 
@@ -162,4 +153,5 @@ The grace period equals `lock_interval_seconds` from config (default 5 minutes).
 - Edit `config.yml` and run `hardstop reload`
 
 **Need to escape quiet hours?**
-- You have a 5-minute grace period after each boot - run `hardstop disable` during that window
+- You have a 5-minute grace period after each boot for urgent tasks
+- To permanently remove enforcement, see the Uninstall section

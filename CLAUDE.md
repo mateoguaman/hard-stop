@@ -4,7 +4,7 @@ Project context for Claude Code.
 
 ## What This Is
 
-Hard Stop is a macOS tool that enforces computer shutdown during "quiet hours" (9 PM - 8 AM by default). It uses `sudo shutdown -h now` to force shutdown, and if the computer is turned back on during quiet hours, it will shut down again every 5 minutes.
+Hard Stop is a macOS tool that enforces computer shutdown during "quiet hours" (9 PM - 8 AM by default). It uses `sudo shutdown -h now` to force shutdown. If the computer is turned back on during quiet hours, it gives a grace period (default 5 minutes), then shuts down again.
 
 ## Architecture
 
@@ -49,32 +49,45 @@ After install:
 
 **Temporarily disable**: `hardstop disable`
 
-**Test without shutdown**: `hardstop test`
+**Dry-run check**: `hardstop check` (shows quiet hours status, grace period)
 
 **Check status**: `hardstop status`
 
-**Run test suite**: `bash scripts/test.sh`
+**Run test suite**: `hardstop test`
 
 ## Test Suite
 
-The test suite (`scripts/test.sh`) verifies:
+Run with `hardstop test`. The test suite (`scripts/test.sh`) verifies:
 - File existence and syntax
 - Config parsing
 - Plist validation (on macOS)
 - Time logic unit tests (14 test cases)
 - Installation status
 - LaunchAgent status
+- Sudoers permissions
 
-All unit tests are safe - no actual shutdowns occur.
+All 38 unit tests are safe - no actual shutdowns occur.
 
 ## Live Integration Test
 
 To test the actual shutdown mechanism:
 
 ```bash
-hardstop test-live              # 3 min test, shutdown every 60s
-hardstop test-live 300 30       # 5 min test, shutdown every 30s
+hardstop test-live              # 3 min test, 60s interval/grace period
+hardstop test-live 300 30       # 5 min test, 30s interval/grace period
 hardstop test-live-cancel       # Cancel early
 ```
 
-This creates a `test_live_until` file with an expiration timestamp. The script checks this file and shuts down regardless of quiet hours until it expires.
+This creates:
+- `test_live_until` file with an expiration timestamp
+- `test_live_interval` file with the test interval (used as grace period)
+
+During test-live mode, the grace period equals the test interval, so you can test the grace period behavior with shorter times.
+
+## Grace Period
+
+After booting during quiet hours (or test-live mode), the system waits for a grace period before shutting down. This allows quick emergency access.
+
+- Default grace period: `lock_interval_seconds` from config (300s / 5 min)
+- During test-live: uses the test interval instead (e.g., 60s)
+- Check current status with `hardstop check` or `hardstop status`

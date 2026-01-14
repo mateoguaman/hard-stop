@@ -8,6 +8,7 @@ REPO_FILE="$STATE_DIR/repo_path"
 GUI_DOMAIN="gui/$(/usr/bin/id -u)"
 HARDSTOP_STATE_DIR="$HOME/Library/Application Support/hardstop"
 TEST_LIVE_FILE="$HARDSTOP_STATE_DIR/test_live_until"
+TEST_LIVE_INTERVAL_FILE="$HARDSTOP_STATE_DIR/test_live_interval"
 
 # Default test-live settings
 TEST_LIVE_DURATION=180    # 3 minutes total test duration
@@ -26,7 +27,8 @@ Commands:
   disable       Unload and disable the LaunchAgent
   reload        Reload the LaunchAgent
   status        Show current status (in quiet hours or not)
-  test          Check if would shutdown (doesn't actually shutdown)
+  check         Check if would shutdown (doesn't actually shutdown)
+  test          Run the test suite (no actual shutdowns)
   test-live [duration] [interval]
                 ACTUALLY shutdown to test the system works!
                 - duration: how long test mode lasts (default: 180s = 3 min)
@@ -140,9 +142,10 @@ start_test_live() {
   echo "Press Ctrl+C within 5 seconds to abort..."
   sleep 5
 
-  # Create state directory and write expiration time
+  # Create state directory and write expiration time + interval
   /bin/mkdir -p "$HARDSTOP_STATE_DIR"
   echo "$expire_time" > "$TEST_LIVE_FILE"
+  echo "$interval" > "$TEST_LIVE_INTERVAL_FILE"
 
   # Temporarily set a faster interval for the LaunchAgent
   /usr/bin/plutil -replace StartInterval -integer "$interval" "$PLIST"
@@ -165,6 +168,7 @@ cancel_test_live() {
 
   if [ -f "$TEST_LIVE_FILE" ]; then
     /bin/rm -f "$TEST_LIVE_FILE"
+    /bin/rm -f "$TEST_LIVE_INTERVAL_FILE"
     echo "Test-live mode cancelled."
   else
     echo "No active test-live session."
@@ -238,9 +242,28 @@ case "$cmd" in
     fi
     "$SCRIPT" --status
     ;;
-  test)
+  check)
     require_script
     "$SCRIPT" --test
+    ;;
+  test)
+    # Find repo path to run test suite
+    test_repo_root=""
+    if [ -f "$REPO_FILE" ]; then
+      test_repo_root="$(/bin/cat "$REPO_FILE")"
+    fi
+    if [ -z "$test_repo_root" ] || [ ! -f "$test_repo_root/scripts/test.sh" ]; then
+      # Try relative to this script
+      test_script_dir="$(cd "$(dirname "$0")" && pwd)"
+      if [ -f "$test_script_dir/test.sh" ]; then
+        test_repo_root="$(cd "$test_script_dir/.." && pwd)"
+      fi
+    fi
+    if [ -z "$test_repo_root" ] || [ ! -f "$test_repo_root/scripts/test.sh" ]; then
+      echo "Cannot find test.sh. Run from repo or after install." >&2
+      exit 1
+    fi
+    /bin/bash "$test_repo_root/scripts/test.sh"
     ;;
   test-live)
     start_test_live "${2:-}" "${3:-}"

@@ -9,6 +9,7 @@ END_TIME="08:00"
 STATE_DIR="${HARDSTOP_STATE_DIR:-$HOME/Library/Application Support/hardstop}"
 REPO_FILE="$HOME/.local/share/hardstop/repo_path"
 CONFIG_FILE=""
+TEST_LIVE_FILE="$STATE_DIR/test_live_until"
 
 # --- Helpers ---
 
@@ -84,12 +85,33 @@ in_quiet_hours() {
   fi
 }
 
+# Check if we're in test-live mode (file exists and hasn't expired)
+in_test_live_mode() {
+  if [ ! -f "$TEST_LIVE_FILE" ]; then
+    return 1
+  fi
+
+  local expire_time now_epoch
+  expire_time=$(/bin/cat "$TEST_LIVE_FILE" 2>/dev/null || echo "0")
+  now_epoch=$(/bin/date +%s)
+
+  if [ "$now_epoch" -lt "$expire_time" ]; then
+    return 0  # Still in test mode
+  else
+    # Test mode expired, clean up
+    /bin/rm -f "$TEST_LIVE_FILE"
+    return 1
+  fi
+}
+
 shutdown_now() {
   # Use sudo shutdown - the sudoers file allows this without password
   /usr/bin/sudo /sbin/shutdown -h now
 }
 
 main() {
+  /bin/mkdir -p "$STATE_DIR"
+
   if [ "${1:-}" = "--test" ]; then
     echo "Test mode: would shutdown now if in quiet hours"
     if in_quiet_hours; then
@@ -97,11 +119,18 @@ main() {
     else
       echo "Currently OUTSIDE quiet hours ($START_TIME - $END_TIME)"
     fi
+    if in_test_live_mode; then
+      local remaining=$(( $(/bin/cat "$TEST_LIVE_FILE") - $(/bin/date +%s) ))
+      echo "TEST-LIVE MODE ACTIVE: ${remaining}s remaining"
+    fi
     exit 0
   fi
 
   if [ "${1:-}" = "--status" ]; then
-    if in_quiet_hours; then
+    if in_test_live_mode; then
+      local remaining=$(( $(/bin/cat "$TEST_LIVE_FILE") - $(/bin/date +%s) ))
+      echo "TEST-LIVE MODE: ${remaining}s remaining - shutdown enforced"
+    elif in_quiet_hours; then
       echo "IN quiet hours ($START_TIME - $END_TIME) - shutdown enforced"
     else
       echo "Outside quiet hours ($START_TIME - $END_TIME)"
@@ -109,7 +138,13 @@ main() {
     exit 0
   fi
 
-  # Only shutdown if we're in quiet hours
+  # Check test-live mode first (takes priority)
+  if in_test_live_mode; then
+    shutdown_now
+    exit 0
+  fi
+
+  # Normal operation: shutdown if in quiet hours
   if in_quiet_hours; then
     shutdown_now
   fi

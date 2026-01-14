@@ -1,0 +1,10 @@
+# Allow the current user to run shutdown without a password
+# This file should be installed to /etc/sudoers.d/hardstop-shutdown
+# Install with: sudo visudo -f /etc/sudoers.d/hardstop-shutdown
+# Or use the install script which will prompt for your password once
+
+# Replace YOUR_USERNAME with your actual username, or use %admin for all admin users
+# Example: john ALL=(ALL) NOPASSWD: /sbin/shutdown
+# Or for all admin users: %admin ALL=(ALL) NOPASSWD: /sbin/shutdown
+
+%admin ALL=(ALL) NOPASSWD: /sbin/shutdown

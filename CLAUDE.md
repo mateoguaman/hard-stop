@@ -21,6 +21,7 @@ Hard Stop is a macOS tool that enforces computer shutdown during "quiet hours" (
 | `scripts/hardstop-kickout.sh` | Core logic: time check + shutdown |
 | `scripts/hardstop` | CLI wrapper for launchctl commands |
 | `scripts/install.sh` | Installer (copies files, sets up launchd, installs sudoers) |
+| `scripts/test.sh` | Test suite (safe, no actual shutdowns) |
 | `launchd/com.hardstop.kickout.plist` | LaunchAgent config (runs every 300s) |
 | `sudoers/hardstop-shutdown` | Passwordless sudo for /sbin/shutdown |
 | `config.yml` | start_time, end_time, interval |
@@ -51,3 +52,17 @@ After install:
 **Test without shutdown**: `hardstop test`
 
 **Check status**: `hardstop status`
+
+**Run test suite**: `bash scripts/test.sh`
+
+## Test Suite
+
+The test suite (`scripts/test.sh`) verifies:
+- File existence and syntax
+- Config parsing
+- Plist validation (on macOS)
+- Time logic unit tests (14 test cases)
+- Installation status
+- LaunchAgent status
+
+All tests are safe - no actual shutdowns occur.

@@ -25,6 +25,7 @@ This uses macOS's native `launchd` system instead of cron:
 - `scripts/hardstop-kickout.sh` - the enforcement script (checks time, shuts down)
 - `scripts/hardstop` - CLI wrapper for managing the service
 - `scripts/install.sh` - installer
+- `scripts/test.sh` - test suite (safe, no actual shutdowns)
 - `launchd/com.hardstop.kickout.plist` - LaunchAgent configuration
 - `sudoers/hardstop-shutdown` - sudoers rule for passwordless shutdown
 - `config.yml` - configuration (times, interval)
@@ -97,6 +98,24 @@ rm ~/.local/bin/hardstop*
 rm ~/Library/LaunchAgents/com.hardstop.kickout.plist
 sudo rm /etc/sudoers.d/hardstop-shutdown
 ```
+
+## Testing
+
+Run the test suite to verify everything is working:
+
+```bash
+bash scripts/test.sh
+```
+
+The test suite checks:
+- All required files exist
+- Script syntax is valid
+- Config file parses correctly
+- Time logic works (unit tests for quiet hours detection)
+- Installation paths are correct
+- LaunchAgent is loaded (on macOS)
+
+All tests are safe - no actual shutdowns will occur.
 
 ## Troubleshooting
 

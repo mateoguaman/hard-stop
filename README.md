@@ -101,11 +101,34 @@ sudo rm /etc/sudoers.d/hardstop-shutdown
 
 ## Testing
 
-Run the test suite to verify everything is working:
+### Safe test (no shutdown)
 
 ```bash
-bash scripts/test.sh
+bash scripts/test.sh      # Run unit test suite
+hardstop test             # Check if currently in quiet hours
 ```
+
+### Live integration test (WILL shutdown!)
+
+To verify the full shutdown mechanism works:
+
+```bash
+hardstop test-live              # 3 min test, shutdown every 60s
+hardstop test-live 300 30       # 5 min test, shutdown every 30s
+```
+
+This will:
+1. **Immediately shutdown** your computer
+2. When you turn it back on, shutdown again every 60 seconds (or custom interval)
+3. After 3 minutes (or custom duration), test mode auto-expires
+4. System returns to normal operation
+
+**To cancel early** (run fast after rebooting!):
+```bash
+hardstop test-live-cancel
+```
+
+### Unit test suite
 
 The test suite checks:
 - All required files exist
@@ -115,7 +138,7 @@ The test suite checks:
 - Installation paths are correct
 - LaunchAgent is loaded (on macOS)
 
-All tests are safe - no actual shutdowns will occur.
+All unit tests are safe - no actual shutdowns will occur.
 
 ## Troubleshooting
 

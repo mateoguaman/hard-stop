@@ -65,4 +65,16 @@ The test suite (`scripts/test.sh`) verifies:
 - Installation status
 - LaunchAgent status
 
-All tests are safe - no actual shutdowns occur.
+All unit tests are safe - no actual shutdowns occur.
+
+## Live Integration Test
+
+To test the actual shutdown mechanism:
+
+```bash
+hardstop test-live              # 3 min test, shutdown every 60s
+hardstop test-live 300 30       # 5 min test, shutdown every 30s
+hardstop test-live-cancel       # Cancel early
+```
+
+This creates a `test_live_until` file with an expiration timestamp. The script checks this file and shuts down regardless of quiet hours until it expires.

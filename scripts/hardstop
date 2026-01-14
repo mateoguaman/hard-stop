@@ -6,6 +6,12 @@ PLIST="$HOME/Library/LaunchAgents/com.hardstop.kickout.plist"
 STATE_DIR="$HOME/.local/share/hardstop"
 REPO_FILE="$STATE_DIR/repo_path"
 GUI_DOMAIN="gui/$(/usr/bin/id -u)"
+HARDSTOP_STATE_DIR="$HOME/Library/Application Support/hardstop"
+TEST_LIVE_FILE="$HARDSTOP_STATE_DIR/test_live_until"
+
+# Default test-live settings
+TEST_LIVE_DURATION=180    # 3 minutes total test duration
+TEST_LIVE_INTERVAL=60     # 60 second check interval during test
 
 usage() {
   cat <<'USAGE'
@@ -21,7 +27,20 @@ Commands:
   reload        Reload the LaunchAgent
   status        Show current status (in quiet hours or not)
   test          Check if would shutdown (doesn't actually shutdown)
+  test-live [duration] [interval]
+                ACTUALLY shutdown to test the system works!
+                - duration: how long test mode lasts (default: 180s = 3 min)
+                - interval: how often to shutdown (default: 60s = 1 min)
+                Computer will shutdown immediately, then every <interval> seconds
+                until <duration> expires. Then returns to normal.
+  test-live-cancel
+                Cancel an active test-live session
   help          Show this help
+
+Examples:
+  hardstop test-live              # 3 min test, shutdown every 60s
+  hardstop test-live 300 30       # 5 min test, shutdown every 30s
+  hardstop test-live-cancel       # Abort test mode immediately
 USAGE
 }
 
@@ -80,6 +99,96 @@ is_loaded() {
   /bin/launchctl list 2>/dev/null | /usr/bin/grep -q "com.hardstop.kickout"
 }
 
+start_test_live() {
+  local duration="${1:-$TEST_LIVE_DURATION}"
+  local interval="${2:-$TEST_LIVE_INTERVAL}"
+
+  # Validate inputs
+  if ! printf "%s" "$duration" | grep -Eq '^[0-9]+$'; then
+    echo "Duration must be a number (seconds)" >&2
+    exit 1
+  fi
+  if ! printf "%s" "$interval" | grep -Eq '^[0-9]+$'; then
+    echo "Interval must be a number (seconds)" >&2
+    exit 1
+  fi
+  if [ "$interval" -lt 10 ]; then
+    echo "Interval must be at least 10 seconds" >&2
+    exit 1
+  fi
+
+  require_plist
+  require_script
+
+  # Calculate expiration time
+  local expire_time=$(( $(/bin/date +%s) + duration ))
+
+  echo "========================================"
+  echo "  STARTING LIVE SHUTDOWN TEST"
+  echo "========================================"
+  echo ""
+  echo "WARNING: Your computer WILL shutdown in 5 seconds!"
+  echo ""
+  echo "Test settings:"
+  echo "  - Duration: ${duration} seconds ($((duration / 60)) min)"
+  echo "  - Interval: ${interval} seconds"
+  echo "  - Shutdowns: ~$((duration / interval)) times"
+  echo ""
+  echo "After ${duration}s, test mode will auto-expire."
+  echo "To cancel early: hardstop test-live-cancel"
+  echo ""
+  echo "Press Ctrl+C within 5 seconds to abort..."
+  sleep 5
+
+  # Create state directory and write expiration time
+  /bin/mkdir -p "$HARDSTOP_STATE_DIR"
+  echo "$expire_time" > "$TEST_LIVE_FILE"
+
+  # Temporarily set a faster interval for the LaunchAgent
+  /usr/bin/plutil -replace StartInterval -integer "$interval" "$PLIST"
+
+  # Reload LaunchAgent with new interval
+  /bin/launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
+  /bin/launchctl enable "$GUI_DOMAIN/com.hardstop.kickout" >/dev/null 2>&1 || true
+  /bin/launchctl bootstrap "$GUI_DOMAIN" "$PLIST"
+
+  echo ""
+  echo "Test mode ACTIVE. Shutting down NOW..."
+  echo "(Test expires at: $(/bin/date -r "$expire_time" "+%H:%M:%S" 2>/dev/null || /bin/date -d "@$expire_time" "+%H:%M:%S" 2>/dev/null || echo "epoch $expire_time"))"
+
+  # Trigger immediate shutdown
+  /usr/bin/sudo /sbin/shutdown -h now
+}
+
+cancel_test_live() {
+  require_plist
+
+  if [ -f "$TEST_LIVE_FILE" ]; then
+    /bin/rm -f "$TEST_LIVE_FILE"
+    echo "Test-live mode cancelled."
+  else
+    echo "No active test-live session."
+  fi
+
+  # Restore normal interval (300 seconds)
+  local config_file normal_interval
+  config_file="$(get_config_file)"
+  normal_interval=$(/usr/bin/awk '/^lock_interval_seconds:/ {sub(/.*:/, ""); gsub(/[" ]/, ""); sub(/#.*/, ""); print}' "$config_file" 2>/dev/null || echo "300")
+
+  if ! printf "%s" "$normal_interval" | grep -Eq '^[0-9]+$'; then
+    normal_interval=300
+  fi
+
+  /usr/bin/plutil -replace StartInterval -integer "$normal_interval" "$PLIST"
+
+  # Reload with normal interval
+  /bin/launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
+  /bin/launchctl enable "$GUI_DOMAIN/com.hardstop.kickout" >/dev/null 2>&1 || true
+  /bin/launchctl bootstrap "$GUI_DOMAIN" "$PLIST"
+
+  echo "Restored normal interval: ${normal_interval}s"
+}
+
 cmd="${1:-help}"
 
 case "$cmd" in
@@ -132,6 +241,12 @@ case "$cmd" in
   test)
     require_script
     "$SCRIPT" --test
+    ;;
+  test-live)
+    start_test_live "${2:-}" "${3:-}"
+    ;;
+  test-live-cancel)
+    cancel_test_live
     ;;
   help|-h|--help)
     usage
